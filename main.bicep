@@ -68,7 +68,7 @@ var storageBlobDataContributorRole = subscriptionResourceId(
 
 // --- Resources
 
-resource dataFactoryUserIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2025-01-31-preview' = {
+resource dataFactoryUserIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2025-05-31-preview' = {
   name: 'dataFactoryUserIdentity'
   location: resourceGroup().location
 }
@@ -768,7 +768,7 @@ resource managedResourceGroup 'Microsoft.Resources/resourceGroups@2025-04-01' ex
   name: managedResourceGroupName
 }
 
-resource databricksWorkspace 'Microsoft.Databricks/workspaces@2025-03-01-preview' = {
+resource databricksWorkspace 'Microsoft.Databricks/workspaces@2026-01-01' = {
   name: workspaceName
   location: location
   sku: {
@@ -812,7 +812,7 @@ resource adfToDataBricksContributorRoleAssignment 'Microsoft.Authorization/roleA
   }
 }
 
-resource dataLakeStore 'Microsoft.Storage/storageAccounts@2025-06-01' = {
+resource dataLakeStore 'Microsoft.Storage/storageAccounts@2026-04-01' = {
   name: datalakeStoreName
   location: location
   sku: {
@@ -848,7 +848,7 @@ resource adfToDataLakeStoreContributorRoleAssignment 'Microsoft.Authorization/ro
   ]
 }
 
-resource blobService 'Microsoft.Storage/storageAccounts/blobServices@2025-06-01' = {
+resource blobService 'Microsoft.Storage/storageAccounts/blobServices@2026-04-01' = {
   name: 'default'
   parent: dataLakeStore
   properties: {
@@ -867,7 +867,7 @@ resource blobService 'Microsoft.Storage/storageAccounts/blobServices@2025-06-01'
   }
 }
 
-resource fileService 'Microsoft.Storage/storageAccounts/fileServices@2025-06-01' = {
+resource fileService 'Microsoft.Storage/storageAccounts/fileServices@2026-04-01' = {
   name: 'default'
   parent: dataLakeStore
   properties: {
@@ -884,22 +884,22 @@ resource fileService 'Microsoft.Storage/storageAccounts/fileServices@2025-06-01'
   }
 }
 
-resource landingContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2025-06-01' = {
+resource landingContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2026-04-01' = {
   parent: blobService
   name: landingContainerName
 }
 
-resource bronzeContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2025-06-01' = {
+resource bronzeContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2026-04-01' = {
   parent: blobService
   name: bronzeContainerName
 }
 
-resource silverContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2025-06-01' = {
+resource silverContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2026-04-01' = {
   parent: blobService
   name: silverContainerName
 }
 
-resource goldContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2025-06-01' = {
+resource goldContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2026-04-01' = {
   parent: blobService
   name: goldContainerName
 }
@@ -977,7 +977,7 @@ resource kvDiag 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
   }
 }
 
-resource sqlServer 'Microsoft.Sql/servers@2024-11-01-preview' = {
+resource sqlServer 'Microsoft.Sql/servers@2025-02-01-preview' = {
   name: serverName
   location: location
   properties: {
@@ -997,7 +997,7 @@ resource sqlServer 'Microsoft.Sql/servers@2024-11-01-preview' = {
   identity: {
     type: 'SystemAssigned'
   }
-  resource activeDirectoryAdmin 'administrators@2024-11-01-preview' = {
+  resource activeDirectoryAdmin 'administrators@2025-02-01-preview' = {
     name: 'ActiveDirectory'
     properties: {
       administratorType: 'ActiveDirectory'
@@ -1007,7 +1007,7 @@ resource sqlServer 'Microsoft.Sql/servers@2024-11-01-preview' = {
     }
   }
 
-  resource sqlADOnlyAuth 'azureADOnlyAuthentications@2024-11-01-preview' = {
+  resource sqlADOnlyAuth 'azureADOnlyAuthentications@2025-02-01-preview' = {
     name: 'Default'
     properties: {
       azureADOnlyAuthentication: true
@@ -1026,7 +1026,7 @@ resource diagnosticSettingsSqlServer 'Microsoft.Insights/diagnosticSettings@2021
   }
 }
 
-resource sqlDB 'Microsoft.Sql/servers/databases@2024-11-01-preview' = {
+resource sqlDB 'Microsoft.Sql/servers/databases@2025-02-01-preview' = {
   parent: sqlServer
   name: sqlDBName
   location: location
@@ -1048,7 +1048,7 @@ resource sqlDB 'Microsoft.Sql/servers/databases@2024-11-01-preview' = {
   ]
 }
 
-resource auditingDbSettings 'Microsoft.Sql/servers/databases/auditingSettings@2024-11-01-preview' = {
+resource auditingDbSettings 'Microsoft.Sql/servers/databases/auditingSettings@2025-02-01-preview' = {
   parent: sqlDB
   name: 'default'
   properties: {
@@ -1065,7 +1065,7 @@ resource auditingDbSettings 'Microsoft.Sql/servers/databases/auditingSettings@20
   }
 }
 
-resource logAnalyticsWorkspace 'Microsoft.OperationalInsights/workspaces@2021-06-01' = {
+resource logAnalyticsWorkspace 'Microsoft.OperationalInsights/workspaces@2025-07-01' = {
   name: logAnalyticsWorkspaceName
   location: location
   properties: {
@@ -1094,7 +1094,7 @@ resource diagnosticSettingsSqlDb 'Microsoft.Insights/diagnosticSettings@2021-05-
   }
 }
 
-resource auditingServerSettings 'Microsoft.Sql/servers/auditingSettings@2024-11-01-preview' = {
+resource auditingServerSettings 'Microsoft.Sql/servers/auditingSettings@2025-02-01-preview' = {
   parent: sqlServer
   name: 'default'
   properties: {
@@ -1108,7 +1108,7 @@ resource auditingServerSettings 'Microsoft.Sql/servers/auditingSettings@2024-11-
   }
 }
 
-resource sqlVulnerabilityAssessment 'Microsoft.Sql/servers/sqlVulnerabilityAssessments@2024-11-01-preview' = {
+resource sqlVulnerabilityAssessment 'Microsoft.Sql/servers/sqlVulnerabilityAssessments@2025-02-01-preview' = {
   name: 'default'
   parent: sqlServer
   properties: {

@@ -60,6 +60,8 @@ Using a Bicep template, we deploy the resources needed for our data processing q
   az deployment group create -f ./main.bicep -g ${RESOURCEGROUP} -p username=${USERNAME} userObjectId=${USER_OBJECTID} userTenantId=${USER_TENANTID} secretsExpirationDate=$(date -d "+1 year" +"%s")
 ```
 
+If you are using macOS, replace `date -d "+1 year" +"%s"` with `date -v+1y +%s`.
+
 ![Contoso's Created Resources](./Resources.jpg "Contoso's Created Resources")
 
 The Bicep template creates:
@@ -67,10 +69,10 @@ The Bicep template creates:
 - User identity for Azure Data Factory
 - Azure Data Lake, the previous identity is a collaborator.
 - Azure Databricks Workspace, the previous identity is a collaborator.
-- A SQL Database that allows access only to Microsoft Entra users, the previous identity is an user.
+- A SQL Database that allows access only to Microsoft Entra users; the previous identity is a user.
 - Azure Data Factory. The previous identity is associated
   - The Azure Data Factory contains a Pipeline
-- A Databricks Key Vault. It includes Azure Data Lake secrets which will be used by databricks.
+- A Databricks Key Vault. It includes Azure Data Lake secrets used by Databricks.
 
 The Tale of Data Transformation:
 
@@ -89,12 +91,12 @@ The pipeline consumes New York Health data. This example works with baby names h
 
 In the ./notebooks directory, you'll find the scripts of our chronicles. Upload them to Databricks using the CLI or manually via the Azure portal.
 
-Manually, it could be done inside databricks. You can import notebooks from the workspace section in the Azure Databricks UI. Azure data factory assumes that the notebooks are inside a _myLib_ folder in the user workspace.
+You can also do this manually inside Databricks. Import notebooks from the Workspace section in the Azure Databricks UI. Azure Data Factory assumes the notebooks are inside a _myLib_ folder in the user workspace.
 
-Using Azure databricks cli, we need a token to authenticate the cli to the cluster. [Azure Databricks personal access token authentication](https://learn.microsoft.com/azure/databricks/dev-tools/cli/authentication#--azure-databricks-personal-access-token-authentication)  
+Using Azure Databricks CLI, you need a token to authenticate the CLI to the workspace. [Azure Databricks personal access token authentication](https://learn.microsoft.com/azure/databricks/dev-tools/cli/authentication#--azure-databricks-personal-access-token-authentication)  
 To create a personal access token, do the following: 
 
-1. In your Azure Databricks workspace, click your Azure Databricks username in the top bar, and then select Settings from the drop down.
+1. In your Azure Databricks workspace, click your Azure Databricks username in the top bar, and then select Settings from the dropdown.
 1. Click Developer.
 1. Next to Access tokens, click Manage.
 1. Click Generate new token.
@@ -103,9 +105,9 @@ To create a personal access token, do the following:
 1. Copy the displayed token to a secure location, and then click Done.
 
 ```bash
-    #  Upload databricks notebook using databriks cli
+    # Upload Databricks notebooks using Databricks CLI
 
-    # Authenticate databricks cli
+    # Authenticate Databricks CLI
     export DATABRICKS_WORKSPACE_URL=$(az deployment group show -g ${RESOURCEGROUP} --name main --query properties.outputs.databricksWorkspaceUrl.value --output tsv)
     databricks configure --host $DATABRICKS_WORKSPACE_URL
     # For the prompt Personal Access Token, enter the Azure Databricks personal access token for your workspace
@@ -168,20 +170,11 @@ az role assignment create \
   --scope ${STORAGE_ACCOUNT_ID} \
   --only-show-errors || true
 
-# Principal that runs notebooks/jobs.
-# IMPORTANT: this must be the identity that submits/runs the Databricks job.
-# If Azure Data Factory triggers the notebook with a service principal in SINGLE_USER mode,
-# use that service principal object/application ID instead of your personal user.
-export PRINCIPAL=${PRINCIPAL:-$USERNAME}
-
-# Optional: set PRINCIPAL automatically from the User Assigned Managed Identity
-# created by this sample for ADF (resource name: dataFactoryUserIdentity).
-# We use clientId because Databricks identifies service principals by application/client ID.
+# Identity that runs notebooks/jobs for this sample.
+# This sample uses the ADF User Assigned Managed Identity as Databricks submitter identity.
+# Databricks identifies service principals by application/client ID.
 export ADF_UAMI_NAME="dataFactoryUserIdentity"
 export ADF_UAMI_CLIENT_ID=$(az identity show -g ${RESOURCEGROUP} -n ${ADF_UAMI_NAME} --query clientId -o tsv)
-
-# Uncomment the next line if ADF is your Databricks job submitter identity.
-# export PRINCIPAL=$ADF_UAMI_CLIENT_ID
 
 # Quick verification
 echo "SUBSCRIPTION_ID=$SUBSCRIPTION_ID"
@@ -190,7 +183,6 @@ echo "ACCESS_CONNECTOR_NAME=$ACCESS_CONNECTOR_NAME"
 echo "ACCESS_CONNECTOR_ID=$ACCESS_CONNECTOR_ID"
 echo "ACCESS_CONNECTOR_PRINCIPAL_ID=$ACCESS_CONNECTOR_PRINCIPAL_ID"
 echo "STORAGE_ACCOUNT=$STORAGE_ACCOUNT"
-echo "PRINCIPAL=$PRINCIPAL"
 echo "ADF_UAMI_CLIENT_ID=$ADF_UAMI_CLIENT_ID"
 ```
 
@@ -228,7 +220,7 @@ EOF
 cat uc_external_locations_setup.sql
 ```
 
-8. Validate the setup:
+7. Validate the setup:
 
 ```sql
 SHOW EXTERNAL LOCATIONS;
@@ -238,7 +230,7 @@ DESCRIBE EXTERNAL LOCATION silver_ext_loc;
 DESCRIBE EXTERNAL LOCATION gold_ext_loc;
 ```
 
-9. Re-run the notebooks/pipeline.
+8. Re-run the notebooks/pipeline.
 
 __NOTE:__  [Notebooks](https://learn.microsoft.com/azure/databricks/notebooks/) are the primary tool for creating data science and machine learning workflows on Azure Databricks. Databricks notebooks provide real-time coauthoring in multiple languages, automatic versioning, and built-in data visualizations for developing code and presenting results. You can see and read the notebooks using Visual Studio Code, the notebooks have comments explaining what they are doing. In this example we are using mainly Python and SQL.  
 
