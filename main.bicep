@@ -914,7 +914,6 @@ resource kv 'Microsoft.KeyVault/vaults@2025-05-01' = {
     tenantId: tenantId
     enableSoftDelete: true
     softDeleteRetentionInDays: 90
-    enablePurgeProtection: true
     accessPolicies: []
     sku: {
       name: 'standard'
