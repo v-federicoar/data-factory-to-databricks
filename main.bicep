@@ -41,6 +41,8 @@ var keyVaultName = 'dbricksKV${uniqueName}'
 var adfKeyVaultName = 'adfkeyVault${uniqueName}'
 @description('Log Analytic Workspace')
 var logAnalyticsWorkspaceName = 'datafactoryworkspace-${uniqueName}'
+@description('The name of the Azure Databricks access connector to create.')
+var accessConnectorName = 'adb-access-connector-${uniqueName}'
 
 var httpNYHealhDataLinkedServiceName = 'httpNYHealhData_LS'
 var dataLakeStoreLinkedServiceName = 'dataLakeStore_LS'
@@ -71,6 +73,15 @@ var storageBlobDataContributorRole = subscriptionResourceId(
 resource dataFactoryUserIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2025-05-31-preview' = {
   name: 'dataFactoryUserIdentity'
   location: resourceGroup().location
+}
+
+resource databricksAccessConnector 'Microsoft.Databricks/accessConnectors@2024-05-01' = {
+  name: accessConnectorName
+  location: location
+  identity: {
+    type: 'SystemAssigned'
+  }
+  properties: {}
 }
 
 resource dataFactory 'Microsoft.DataFactory/factories@2018-06-01' = {
@@ -304,8 +315,8 @@ resource dataFactoryPipeline 'Microsoft.DataFactory/factories/pipelines@2018-06-
           notebookPath: '/Users/${username}/myLib/landingToBronze'
           baseParameters: {
             _pipeline_run_id: '@pipeline().RunId'
-            _filename: '@concat(\'nybabynames-\',formatDatetime(utcnow(),\'dd-MM-yyy\'),\'.csv\')'
-            _processing_date: '@formatDatetime(utcnow(),\'dd-MM-yyy HH:mm:ss\')'
+            _filename: '@concat(\'nybabynames-\',formatDatetime(utcnow(),\'dd-MM-yyyy\'),\'.csv\')'
+            _processing_date: '@formatDatetime(utcnow(),\'dd-MM-yyyy HH:mm:ss\')'
           }
         }
         linkedServiceName: {
@@ -328,7 +339,7 @@ resource dataFactoryPipeline 'Microsoft.DataFactory/factories/pipelines@2018-06-
           notebookPath: '/Users/${username}/myLib/bronzeToSilver'
           baseParameters: {
             _pipeline_run_id: '@pipeline().RunId'
-            _processing_date: '@formatDatetime(utcnow(),\'dd-MM-yyy\')'
+            _processing_date: '@formatDatetime(utcnow(),\'dd-MM-yyyy\')'
           }
         }
         linkedServiceName: {
@@ -351,7 +362,7 @@ resource dataFactoryPipeline 'Microsoft.DataFactory/factories/pipelines@2018-06-
           notebookPath: '/Users/${username}/myLib/silverToGold'
           baseParameters: {
             _pipeline_run_id: '@pipeline().RunId'
-            _processing_date: '@formatDatetime(utcnow(),\'dd-MM-yyy\')'
+            _processing_date: '@formatDatetime(utcnow(),\'dd-MM-yyyy\')'
           }
         }
         linkedServiceName: {
@@ -775,6 +786,7 @@ resource databricksWorkspace 'Microsoft.Databricks/workspaces@2026-01-01' = {
     name: 'premium'
   }
   properties: {
+    computeMode: 'Hybrid'
     managedResourceGroupId: managedResourceGroup.id
     parameters: {
       enableNoPublicIp: {
@@ -846,6 +858,16 @@ resource adfToDataLakeStoreContributorRoleAssignment 'Microsoft.Authorization/ro
   dependsOn: [
     databricksWorkspace
   ]
+}
+
+resource accessConnectorToDataLakeStoreContributorRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(dataLakeStore.id, databricksAccessConnector.id, 'Storage Blob Data Contributor')
+  scope: dataLakeStore
+  properties: {
+    roleDefinitionId: storageBlobDataContributorRole
+    principalId: databricksAccessConnector.identity.principalId
+    principalType: 'ServicePrincipal'
+  }
 }
 
 resource blobService 'Microsoft.Storage/storageAccounts/blobServices@2026-04-01' = {
@@ -1006,8 +1028,7 @@ resource sqlServer 'Microsoft.Sql/servers@2025-02-01-preview' = {
       tenantId: userTenantId
     }
   }
-
-  resource sqlADOnlyAuth 'azureADOnlyAuthentications@2025-02-01-preview' = {
+    resource sqlADOnlyAuth 'azureADOnlyAuthentications@2025-02-01-preview' = {
     name: 'Default'
     properties: {
       azureADOnlyAuthentication: true
@@ -1143,7 +1164,16 @@ output resourceId string = dataFactoryPipeline.id
 output databriksManagedResourceGroup string = managedResourceGroupName
 output location string = location
 output databricksWorkspaceUrl string = 'https://${databricksWorkspace.properties.workspaceUrl}'
+output storageAccountName string = dataLakeStore.name
+output storageAccountResourceId string = dataLakeStore.id
 output databricksKeyVaultName string = keyVaultName
 output databricksKeyVaultUrl string = kv.properties.vaultUri
 output databricksKeyVaultResourceId string = kv.id
 output adfKeyVaultName string = adfKeyVaultName
+output dataFactoryUserManagedIdentityName string = dataFactoryUserIdentity.name
+output dataFactoryUserManagedIdentityResourceId string = dataFactoryUserIdentity.id
+output dataFactoryUserManagedIdentityPrincipalId string = dataFactoryUserIdentity.properties.principalId
+output dataFactoryUserManagedIdentityClientId string = dataFactoryUserIdentity.properties.clientId
+output databricksAccessConnectorName string = databricksAccessConnector.name
+output databricksAccessConnectorId string = databricksAccessConnector.id
+output databricksAccessConnectorPrincipalId string = databricksAccessConnector.identity.principalId

@@ -7,9 +7,9 @@ Welcome to the project setup guide for Contoso's data processing pipeline. This 
 Before we embark on this adventure, ensure you have the following tools ready:
 
 - **An Azure subscription**  [free account](https://azure.microsoft.com/pricing/purchase-options/azure-account?cid=msft_learn)
-- **Azure CLI**: Version 2.75.0 or higher. Install from [Azure CLI's official page](https://learn.microsoft.com/cli/azure/install-azure-cli).
+- **Azure CLI**: Version 2.86.0 or higher. Install from [Azure CLI's official page](https://learn.microsoft.com/cli/azure/install-azure-cli).
 - **Bash or WSL**: A Bash-compatible shell environment is crucial. If you're on Windows, check out [Windows Subsystem for Linux (WSL)](https://learn.microsoft.com/windows/wsl/install).
-- **Databricks CLI**: Optional, but recommended for cluster manipulation. Install instructions are available [here](https://learn.microsoft.com/azure/databricks/dev-tools/cli/tutorial), version 0.258.0 or higher.
+- **Databricks CLI**: Optional, but recommended for cluster manipulation. Install instructions are available [here](https://learn.microsoft.com/azure/databricks/dev-tools/cli/tutorial), version 1.1.0 or higher.
 
 ## The Contoso Data Pipeline Adventure
 
@@ -57,7 +57,7 @@ With our map in hand, we create a resource group in our chosen location:
 Using a Bicep template, we deploy the resources needed for our data processing quest:
 
 ```bash
-  az deployment group create -f ./main.bicep -g ${RESOURCEGROUP} -p username=${USERNAME} userObjectId=${USER_OBJECTID} userTenantId=${USER_TENANTID} secretsExpirationDate=$(date -d "+1 year" +"%s")
+  az deployment group create --name main -f ./main.bicep -g ${RESOURCEGROUP} -p username=${USERNAME} userObjectId=${USER_OBJECTID} userTenantId=${USER_TENANTID} secretsExpirationDate=$(date -d "+1 year" +"%s")
 ```
 
 If you are using macOS, replace `date -d "+1 year" +"%s"` with `date -v+1y +%s`.
@@ -66,13 +66,14 @@ If you are using macOS, replace `date -d "+1 year" +"%s"` with `date -v+1y +%s`.
 
 The Bicep template creates:
 
-- User identity for Azure Data Factory
-- Azure Data Lake, the previous identity is a collaborator.
-- Azure Databricks Workspace, the previous identity is a collaborator.
-- A SQL Database that allows access only to Microsoft Entra users; the previous identity is a user.
-- Azure Data Factory. The previous identity is associated
-  - The Azure Data Factory contains a Pipeline
-- A Databricks Key Vault. It includes Azure Data Lake secrets used by Databricks.
+- A User-Assigned Managed Identity used by Azure Data Factory.
+- An Azure Data Lake Storage Gen2 account with landing, bronze, silver, and gold containers.
+- An Azure Databricks Premium workspace.
+- A Databricks Access Connector with a system-assigned managed identity for Unity Catalog storage access.
+- An Azure SQL Database configured for Microsoft Entra authentication.
+- An Azure Data Factory instance with the sample pipeline.
+- An Azure Key Vault that stores the storage secrets used by the notebooks.
+- A Log Analytics workspace and diagnostic settings for monitoring.
 
 The Tale of Data Transformation:
 
@@ -93,24 +94,13 @@ In the ./notebooks directory, you'll find the scripts of our chronicles. Upload 
 
 You can also do this manually inside Databricks. Import notebooks from the Workspace section in the Azure Databricks UI. Azure Data Factory assumes the notebooks are inside a _myLib_ folder in the user workspace.
 
-Using Azure Databricks CLI, you need a token to authenticate the CLI to the workspace. [Azure Databricks personal access token authentication](https://learn.microsoft.com/azure/databricks/dev-tools/cli/authentication#--azure-databricks-personal-access-token-authentication)  
-To create a personal access token, do the following: 
-
-1. In your Azure Databricks workspace, click your Azure Databricks username in the top bar, and then select Settings from the dropdown.
-1. Click Developer.
-1. Next to Access tokens, click Manage.
-1. Click Generate new token.
-1. (Optional) Enter a comment that helps you to identify this token in the future, and change the token's default lifetime of 90 days. To create a token with no lifetime (not recommended), leave the Lifetime (days) box empty (blank).
-1. Click Generate.
-1. Copy the displayed token to a secure location, and then click Done.
+The Databricks CLI authenticates using your existing Azure CLI session (since you already ran `az login` in Step 2). See [Azure CLI authentication for the Databricks CLI](https://learn.microsoft.com/azure/databricks/dev-tools/cli/authentication#azure-cli-auth).
 
 ```bash
     # Upload Databricks notebooks using Databricks CLI
 
-    # Authenticate Databricks CLI
-    export DATABRICKS_WORKSPACE_URL=$(az deployment group show -g ${RESOURCEGROUP} --name main --query properties.outputs.databricksWorkspaceUrl.value --output tsv)
-    databricks configure --host $DATABRICKS_WORKSPACE_URL
-    # For the prompt Personal Access Token, enter the Azure Databricks personal access token for your workspace
+    # Set the workspace URL (Azure CLI auth is used automatically)
+    export DATABRICKS_HOST=$(az deployment group show -g ${RESOURCEGROUP} --name main --query properties.outputs.databricksWorkspaceUrl.value --output tsv)
 
     # Upload the local notebooks to your workspace
     databricks sync ./notebooks/ /Users/${USERNAME}/myLib
@@ -134,47 +124,18 @@ export SUBSCRIPTION_ID=$(az account show --query id -o tsv)
 az config set extension.use_dynamic_install=yes_without_prompt
 az config set extension.dynamic_install_allow_preview=true
 
-# Access Connector name and ID
-export ACCESS_CONNECTOR_NAME=${ACCESS_CONNECTOR_NAME:-adb-access-connector-${LOCATION}}
-export ACCESS_CONNECTOR_ID=$(az resource list -g ${RESOURCEGROUP} --resource-type Microsoft.Databricks/accessConnectors --query "[0].id" -o tsv)
-export ACCESS_CONNECTOR_PRINCIPAL_ID=""
-
-# If no connector exists, create one with SystemAssigned identity
-if [ -z "$ACCESS_CONNECTOR_ID" ]; then
-  az databricks access-connector create -g ${RESOURCEGROUP} -n ${ACCESS_CONNECTOR_NAME} -l ${LOCATION} --identity-type SystemAssigned
-  export ACCESS_CONNECTOR_ID=$(az databricks access-connector show -g ${RESOURCEGROUP} -n ${ACCESS_CONNECTOR_NAME} --query id -o tsv)
-  export ACCESS_CONNECTOR_PRINCIPAL_ID=$(az databricks access-connector show -g ${RESOURCEGROUP} -n ${ACCESS_CONNECTOR_NAME} --query identity.principalId -o tsv)
-else
-  # Connector exists. Validate that it has a managed identity.
-  export ACCESS_CONNECTOR_NAME=$(basename ${ACCESS_CONNECTOR_ID})
-  export ACCESS_CONNECTOR_PRINCIPAL_ID=$(az databricks access-connector show -g ${RESOURCEGROUP} -n ${ACCESS_CONNECTOR_NAME} --query identity.principalId -o tsv)
-
-  # If principalId is empty, connector was created without managed identity. Recreate it correctly.
-  if [ -z "$ACCESS_CONNECTOR_PRINCIPAL_ID" ] || [ "$ACCESS_CONNECTOR_PRINCIPAL_ID" = "null" ]; then
-    az databricks access-connector delete -g ${RESOURCEGROUP} -n ${ACCESS_CONNECTOR_NAME} --yes
-    az databricks access-connector create -g ${RESOURCEGROUP} -n ${ACCESS_CONNECTOR_NAME} -l ${LOCATION} --identity-type SystemAssigned
-    export ACCESS_CONNECTOR_ID=$(az databricks access-connector show -g ${RESOURCEGROUP} -n ${ACCESS_CONNECTOR_NAME} --query id -o tsv)
-    export ACCESS_CONNECTOR_PRINCIPAL_ID=$(az databricks access-connector show -g ${RESOURCEGROUP} -n ${ACCESS_CONNECTOR_NAME} --query identity.principalId -o tsv)
-  fi
-fi
-
-# Storage account name used by the sample
-export STORAGE_ACCOUNT=$(az resource list -g ${RESOURCEGROUP} --resource-type Microsoft.Storage/storageAccounts --query "[0].name" -o tsv)
-export STORAGE_ACCOUNT_ID=$(az storage account show -g ${RESOURCEGROUP} -n ${STORAGE_ACCOUNT} --query id -o tsv)
-
-# Grant connector access to ADLS (required)
-az role assignment create \
-  --assignee-object-id ${ACCESS_CONNECTOR_PRINCIPAL_ID} \
-  --assignee-principal-type ServicePrincipal \
-  --role "Storage Blob Data Contributor" \
-  --scope ${STORAGE_ACCOUNT_ID} \
-  --only-show-errors || true
+# Values created by main.bicep and exposed as deployment outputs
+export ACCESS_CONNECTOR_NAME=$(az deployment group show -g ${RESOURCEGROUP} -n main --query properties.outputs.databricksAccessConnectorName.value -o tsv)
+export ACCESS_CONNECTOR_ID=$(az deployment group show -g ${RESOURCEGROUP} -n main --query properties.outputs.databricksAccessConnectorId.value -o tsv)
+export ACCESS_CONNECTOR_PRINCIPAL_ID=$(az deployment group show -g ${RESOURCEGROUP} -n main --query properties.outputs.databricksAccessConnectorPrincipalId.value -o tsv)
+export STORAGE_ACCOUNT=$(az deployment group show -g ${RESOURCEGROUP} -n main --query properties.outputs.storageAccountName.value -o tsv)
+export STORAGE_ACCOUNT_ID=$(az deployment group show -g ${RESOURCEGROUP} -n main --query properties.outputs.storageAccountResourceId.value -o tsv)
 
 # Identity that runs notebooks/jobs for this sample.
 # This sample uses the ADF User Assigned Managed Identity as Databricks submitter identity.
 # Databricks identifies service principals by application/client ID.
-export ADF_UAMI_NAME="dataFactoryUserIdentity"
-export ADF_UAMI_CLIENT_ID=$(az identity show -g ${RESOURCEGROUP} -n ${ADF_UAMI_NAME} --query clientId -o tsv)
+export ADF_UAMI_NAME=$(az deployment group show -g ${RESOURCEGROUP} -n main --query properties.outputs.dataFactoryUserManagedIdentityName.value -o tsv)
+export ADF_UAMI_CLIENT_ID=$(az deployment group show -g ${RESOURCEGROUP} -n main --query properties.outputs.dataFactoryUserManagedIdentityClientId.value -o tsv)
 
 # Quick verification
 echo "SUBSCRIPTION_ID=$SUBSCRIPTION_ID"
@@ -186,13 +147,39 @@ echo "STORAGE_ACCOUNT=$STORAGE_ACCOUNT"
 echo "ADF_UAMI_CLIENT_ID=$ADF_UAMI_CLIENT_ID"
 ```
 
-6. Generate a ready-to-paste SQL script (copy and paste this in Bash/WSL):
+The Bicep deployment creates the Databricks Access Connector with a system-assigned identity and grants it `Storage Blob Data Contributor` on the sample storage account.
+
+6. In Azure Databricks, create the storage credential in the UI **(or update it if `adls_cred` already exists from a previous deployment)**:
+
+  > **⚠️ Important:** The Unity Catalog metastore is account-level and survives resource group deletion. If you deleted and recreated the resource group, the old `adls_cred` credential still exists but points to a now-deleted access connector. 
+
+  To create from scratch:
+
+  1. In the sidebar, click **Catalog**.
+  2. Click **Create** and then select **Create a credential**.
+  3. Select **Azure Managed Identity** as the credential type.
+  4. Enter `adls_cred` as the storage credential name.
+  5. Paste `${ACCESS_CONNECTOR_ID}` into **Access Connector ID**.
+  6. Leave **Managed Identity ID** empty because this sample uses the access connector system-assigned identity.
+  7. Click **Create**.
+
+7. Register the ADF managed identity as a Databricks service principal (required so the GRANT statements in the next step can reference it by client ID):
+
+  1. Click your username in the top-right bar and select **Settings**.
+  2. Click the **Identity and access** tab.
+  3. Next to **Service principals**, click **Manage**.
+  4. Click **Add service principal** → **Add new**.
+  5. Select **Microsoft Entra ID managed**.
+  6. Paste the value of `$ADF_UAMI_CLIENT_ID` (printed in step 5) into **Client ID**.
+  7. Enter the value of `$ADF_UAMI_NAME` as the display name (e.g., `dataFactoryUserIdentity`).
+  8. Click **Add**.
+
+  > **Note:** After adding the service principal, wait a minute before running the GRANT statements in the next step. Entra ID propagation can take a short time, and running the GRANTs immediately may result in a `[NO_PARENT_EXTERNAL_LOCATION_FOR_PATH]` error on the first pipeline run even though the setup is correct. If that happens, wait briefly and re-run the pipeline.
+
+8. Generate a ready-to-paste SQL script for the external locations and grants (copy and paste this in Bash/WSL):
 
 ```bash
 cat > uc_external_locations_setup.sql <<EOF
-CREATE STORAGE CREDENTIAL IF NOT EXISTS adls_cred
-WITH AZURE_MANAGED_IDENTITY '${ACCESS_CONNECTOR_ID}';
-
 CREATE EXTERNAL LOCATION IF NOT EXISTS landing_ext_loc
 URL 'abfss://landing@${STORAGE_ACCOUNT}.dfs.core.windows.net/'
 WITH (STORAGE CREDENTIAL adls_cred);
@@ -209,10 +196,11 @@ CREATE EXTERNAL LOCATION IF NOT EXISTS gold_ext_loc
 URL 'abfss://gold@${STORAGE_ACCOUNT}.dfs.core.windows.net/'
 WITH (STORAGE CREDENTIAL adls_cred);
 
-GRANT READ FILES, WRITE FILES, CREATE EXTERNAL TABLE ON EXTERNAL LOCATION landing_ext_loc TO `${ADF_UAMI_CLIENT_ID}`;
-GRANT READ FILES, WRITE FILES, CREATE EXTERNAL TABLE ON EXTERNAL LOCATION bronze_ext_loc TO `${ADF_UAMI_CLIENT_ID}`;
-GRANT READ FILES, WRITE FILES, CREATE EXTERNAL TABLE ON EXTERNAL LOCATION silver_ext_loc TO `${ADF_UAMI_CLIENT_ID}`;
-GRANT READ FILES, WRITE FILES, CREATE EXTERNAL TABLE ON EXTERNAL LOCATION gold_ext_loc TO `${ADF_UAMI_CLIENT_ID}`;
+GRANT READ FILES, WRITE FILES, CREATE EXTERNAL TABLE ON EXTERNAL LOCATION landing_ext_loc TO \`${ADF_UAMI_CLIENT_ID}\`;
+GRANT READ FILES, WRITE FILES, CREATE EXTERNAL TABLE ON EXTERNAL LOCATION bronze_ext_loc TO \`${ADF_UAMI_CLIENT_ID}\`;
+GRANT READ FILES, WRITE FILES, CREATE EXTERNAL TABLE ON EXTERNAL LOCATION silver_ext_loc TO \`${ADF_UAMI_CLIENT_ID}\`;
+GRANT READ FILES, WRITE FILES, CREATE EXTERNAL TABLE ON EXTERNAL LOCATION gold_ext_loc TO \`${ADF_UAMI_CLIENT_ID}\`;
+
 EOF
 ```
 
@@ -220,7 +208,16 @@ EOF
 cat uc_external_locations_setup.sql
 ```
 
-7. Validate the setup:
+9. In Azure Databricks, execute the generated SQL:
+
+  1. In the sidebar, click **Queries**.
+  2. Create a new query in the SQL query editor.
+  3. Copy the output of `cat uc_external_locations_setup.sql` and paste it into the editor.
+  4. Run the query and confirm that the statements complete successfully.
+  5. Select a running SQL warehouse, or start one and wait until it is ready.
+
+
+10. Validate the setup:
 
 ```sql
 SHOW EXTERNAL LOCATIONS;
@@ -230,7 +227,7 @@ DESCRIBE EXTERNAL LOCATION silver_ext_loc;
 DESCRIBE EXTERNAL LOCATION gold_ext_loc;
 ```
 
-8. Re-run the notebooks/pipeline.
+11. Re-run the notebooks/pipeline.
 
 __NOTE:__  [Notebooks](https://learn.microsoft.com/azure/databricks/notebooks/) are the primary tool for creating data science and machine learning workflows on Azure Databricks. Databricks notebooks provide real-time coauthoring in multiple languages, automatic versioning, and built-in data visualizations for developing code and presenting results. You can see and read the notebooks using Visual Studio Code, the notebooks have comments explaining what they are doing. In this example we are using mainly Python and SQL.  
 
@@ -248,8 +245,10 @@ Create an Azure Key Vault-backed secret scope to allow Databricks to access the 
 
 ```bash
   # Get the values from here
+  export DATABRICKS_KEY_VAULT_NAME=$(az deployment group show -g ${RESOURCEGROUP} --name main --query properties.outputs.databricksKeyVaultName.value --output tsv)
   export DATABRICKS_KEY_VAULT_DNS_NAME=$(az deployment group show -g ${RESOURCEGROUP} --name main --query properties.outputs.databricksKeyVaultUrl.value --output tsv)
   export DATABRICKS_KEY_VAULT_RESOURCE_ID=$(az deployment group show -g ${RESOURCEGROUP} --name main --query properties.outputs.databricksKeyVaultResourceId.value --output tsv)
+  echo $DATABRICKS_KEY_VAULT_NAME
   echo $DATABRICKS_KEY_VAULT_DNS_NAME
   echo $DATABRICKS_KEY_VAULT_RESOURCE_ID
 ```
@@ -258,15 +257,14 @@ Create an Azure Key Vault-backed secret scope to allow Databricks to access the 
 
 Our data analyst, armed with insights, creates a star model in the SQL database to be populated by the pipeline.
 
-1. Navigate to the resource group using the Azure Portal.
-2. Select the SQL Database
-3. Select the Query Editor
-4. Enter with your Microsoft Entra user provided to the script. The first time you do this, you'll need to configure the firewall by following the portal instructions.
-5. Copy the code from ./sql/star_model.sql, and paste on the Query Editor
-6. Execute
-7. Review the tables that were created and explore any [stored procedures](https://learn.microsoft.com/azure/data-factory/connector-sql-server?tabs=data-factory#invoke-a-stored-procedure-from-a-sql-sink)
-8. **Grant permissions to the Azure Data Factory Managed Identity inside the Database**. Copy the code from ./sql/UserManageIdentity.sql and paste it into the Query Editor.
-9. Execute the script.
+1. In the Azure portal, open your SQL database resource.
+2. On the SQL database **Overview** page, select **Query editor (preview)** from the resource menu.
+3. On the sign-in screen, choose **Microsoft Entra authentication** and select **Continue as <your-user>**.
+4. Copy the code from `./sql/star_model.sql` and paste it into **New Query**.
+5. Select **Run**.
+6. Review the tables that were created and explore any [stored procedures](https://learn.microsoft.com/azure/data-factory/connector-sql-server?tabs=data-factory#invoke-a-stored-procedure-from-a-sql-sink).
+7. To grant database permissions to the Azure Data Factory managed identity, copy the code from `./sql/UserManageIdentity.sql` into **New Query**.
+8. Select **Run** again.
 
 ### Step 9: Execute the Azure Data Factory Pipeline
 
@@ -313,7 +311,22 @@ ORDER BY total_count DESC
 
 ### Step 12: The Journey's End
 
-When you're done, delete the resources and the resource group. After the delete finishes, purge the soft-deleted Key Vaults created by this reference implementation so you can redeploy with the same resource group name:
+When you're done, delete the resources and the resource group.
+
+> **⚠️ Clean up Unity Catalog first!** The Unity Catalog metastore is account-level and persists after resource group deletion. If you plan to redeploy, run the following in the Databricks SQL Editor **before** deleting the resource group — otherwise stale credentials and locations will remain and cause errors on the next deployment:
+>
+> ```sql
+> DROP TABLE IF EXISTS bronze.new_york_baby_names;
+> DROP SCHEMA IF EXISTS bronze CASCADE;
+> DROP SCHEMA IF EXISTS silver CASCADE;
+> DROP EXTERNAL LOCATION IF EXISTS landing_ext_loc FORCE;
+> DROP EXTERNAL LOCATION IF EXISTS bronze_ext_loc FORCE;
+> DROP EXTERNAL LOCATION IF EXISTS silver_ext_loc FORCE;
+> DROP EXTERNAL LOCATION IF EXISTS gold_ext_loc FORCE;
+> DROP STORAGE CREDENTIAL IF EXISTS adls_cred FORCE;
+> ```
+
+After the delete finishes, purge the soft-deleted Key Vaults created by this reference implementation so you can redeploy with the same resource group name:
 
 ```bash
 # First Navigate to resource group locks, then delete of all them. Next, execute the script.
