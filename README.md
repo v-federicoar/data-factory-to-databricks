@@ -57,10 +57,8 @@ With our map in hand, we create a resource group in our chosen location:
 Using a Bicep template, we deploy the resources needed for our data processing quest:
 
 ```bash
-  az deployment group create --name main -f ./main.bicep -g ${RESOURCEGROUP} -p username=${USERNAME} userObjectId=${USER_OBJECTID} userTenantId=${USER_TENANTID} secretsExpirationDate=$(date -d "+1 year" +"%s")
+  az deployment group create --name main -f ./main.bicep -g ${RESOURCEGROUP} -p username=${USERNAME} userObjectId=${USER_OBJECTID} userTenantId=${USER_TENANTID}
 ```
-
-If you are using macOS, replace `date -d "+1 year" +"%s"` with `date -v+1y +%s`.
 
 ![Contoso's Created Resources](./Resources.jpg "Contoso's Created Resources")
 
@@ -72,7 +70,6 @@ The Bicep template creates:
 - A Databricks Access Connector with a system-assigned managed identity for Unity Catalog storage access.
 - An Azure SQL Database configured for Microsoft Entra authentication.
 - An Azure Data Factory instance with the sample pipeline.
-- An Azure Key Vault that stores the storage secrets used by the notebooks.
 - A Log Analytics workspace and diagnostic settings for monitoring.
 
 The Tale of Data Transformation:
@@ -110,11 +107,7 @@ The Databricks CLI authenticates using your existing Azure CLI session (since yo
 
 If your workspace uses Unity Catalog and you keep bronze/silver/gold in ADLS paths, run this one-time setup before executing the pipeline. Without this setup, you might get errors like `[NO_PARENT_EXTERNAL_LOCATION_FOR_PATH]`.
 
-1. Open Azure Databricks in the browser.
-2. Go to **SQL**.
-3. Start (or select) a SQL Warehouse.
-4. Open **SQL Editor** and create a new query.
-5. In Bash/WSL, prepare variables and Azure resources (copy and paste this whole block):
+1. In Bash/WSL, prepare variables and Azure resources (copy and paste this whole block):
 
 ```bash
 # Current subscription and resource group
@@ -137,6 +130,9 @@ export STORAGE_ACCOUNT_ID=$(az deployment group show -g ${RESOURCEGROUP} -n main
 export ADF_UAMI_NAME=$(az deployment group show -g ${RESOURCEGROUP} -n main --query properties.outputs.dataFactoryUserManagedIdentityName.value -o tsv)
 export ADF_UAMI_CLIENT_ID=$(az deployment group show -g ${RESOURCEGROUP} -n main --query properties.outputs.dataFactoryUserManagedIdentityClientId.value -o tsv)
 
+# Workspace default catalog name (used to grant the ADF identity permission to create schemas/tables)
+export WORKSPACE_CATALOG=$(databricks catalogs list --output json | python3 -c "import sys,json; print(next(c['name'] for c in json.load(sys.stdin) if c.get('catalog_type')=='MANAGED_CATALOG'))")
+
 # Quick verification
 echo "SUBSCRIPTION_ID=$SUBSCRIPTION_ID"
 echo "RESOURCEGROUP=$RESOURCEGROUP"
@@ -145,6 +141,7 @@ echo "ACCESS_CONNECTOR_ID=$ACCESS_CONNECTOR_ID"
 echo "ACCESS_CONNECTOR_PRINCIPAL_ID=$ACCESS_CONNECTOR_PRINCIPAL_ID"
 echo "STORAGE_ACCOUNT=$STORAGE_ACCOUNT"
 echo "ADF_UAMI_CLIENT_ID=$ADF_UAMI_CLIENT_ID"
+echo "WORKSPACE_CATALOG=$WORKSPACE_CATALOG"
 ```
 
 The Bicep deployment creates the Databricks Access Connector with a system-assigned identity and grants it `Storage Blob Data Contributor` on the sample storage account.
@@ -157,7 +154,7 @@ The Bicep deployment creates the Databricks Access Connector with a system-assig
 
   1. In the sidebar, click **Catalog**.
   2. Click **Create** and then select **Create a credential**.
-  3. Select **Azure Managed Identity** as the credential type.
+  3. Select **Storage Credential** and **Azure Managed Identity** as the credential type.
   4. Enter `adls_cred` as the storage credential name.
   5. Paste `${ACCESS_CONNECTOR_ID}` into **Access Connector ID**.
   6. Leave **Managed Identity ID** empty because this sample uses the access connector system-assigned identity.
@@ -174,7 +171,6 @@ The Bicep deployment creates the Databricks Access Connector with a system-assig
   7. Enter the value of `$ADF_UAMI_NAME` as the display name (e.g., `dataFactoryUserIdentity`).
   8. Click **Add**.
 
-  > **Note:** After adding the service principal, wait a minute before running the GRANT statements in the next step. Entra ID propagation can take a short time, and running the GRANTs immediately may result in a `[NO_PARENT_EXTERNAL_LOCATION_FOR_PATH]` error on the first pipeline run even though the setup is correct. If that happens, wait briefly and re-run the pipeline.
 
 8. Generate a ready-to-paste SQL script for the external locations and grants (copy and paste this in Bash/WSL):
 
@@ -200,6 +196,9 @@ GRANT READ FILES, WRITE FILES, CREATE EXTERNAL TABLE ON EXTERNAL LOCATION landin
 GRANT READ FILES, WRITE FILES, CREATE EXTERNAL TABLE ON EXTERNAL LOCATION bronze_ext_loc TO \`${ADF_UAMI_CLIENT_ID}\`;
 GRANT READ FILES, WRITE FILES, CREATE EXTERNAL TABLE ON EXTERNAL LOCATION silver_ext_loc TO \`${ADF_UAMI_CLIENT_ID}\`;
 GRANT READ FILES, WRITE FILES, CREATE EXTERNAL TABLE ON EXTERNAL LOCATION gold_ext_loc TO \`${ADF_UAMI_CLIENT_ID}\`;
+
+-- Grant ADF identity permission to create schemas and tables in the workspace catalog
+GRANT USE CATALOG, CREATE SCHEMA ON CATALOG \`${WORKSPACE_CATALOG}\` TO \`${ADF_UAMI_CLIENT_ID}\`;
 
 EOF
 ```
@@ -231,29 +230,7 @@ DESCRIBE EXTERNAL LOCATION gold_ext_loc;
 
 __NOTE:__  [Notebooks](https://learn.microsoft.com/azure/databricks/notebooks/) are the primary tool for creating data science and machine learning workflows on Azure Databricks. Databricks notebooks provide real-time coauthoring in multiple languages, automatic versioning, and built-in data visualizations for developing code and presenting results. You can see and read the notebooks using Visual Studio Code, the notebooks have comments explaining what they are doing. In this example we are using mainly Python and SQL.  
 
-### Step 7: [Databricks Secret Scope Creation](https://learn.microsoft.com/azure/databricks/security/secrets/secret-scopes#create-an-azure-key-vault-backed-secret-scope)
-
-Create an Azure Key Vault-backed secret scope to allow Databricks to access the Data Lake. The notebook will get the secrets from a Databricks Secret Scope.
-
-1. Go to https://-databricks-instance-/**#secrets/createScope**. Replace -databricks-instance- with the workspace URL of your Azure Databricks deployment. Note: The scope name in the URL must be uppercase.
-
-2. Enter the name of the secret scope. Our notebook expect **dataLakeScope**
-
-3. Set Managed Principal to 'All workspace users'
-
-4. Complete dns name and resource id
-
-```bash
-  # Get the values from here
-  export DATABRICKS_KEY_VAULT_NAME=$(az deployment group show -g ${RESOURCEGROUP} --name main --query properties.outputs.databricksKeyVaultName.value --output tsv)
-  export DATABRICKS_KEY_VAULT_DNS_NAME=$(az deployment group show -g ${RESOURCEGROUP} --name main --query properties.outputs.databricksKeyVaultUrl.value --output tsv)
-  export DATABRICKS_KEY_VAULT_RESOURCE_ID=$(az deployment group show -g ${RESOURCEGROUP} --name main --query properties.outputs.databricksKeyVaultResourceId.value --output tsv)
-  echo $DATABRICKS_KEY_VAULT_NAME
-  echo $DATABRICKS_KEY_VAULT_DNS_NAME
-  echo $DATABRICKS_KEY_VAULT_RESOURCE_ID
-```
-
-### Step 8: The SQL Database Saga
+### Step 7: The SQL Database Saga
 
 Our data analyst, armed with insights, creates a star model in the SQL database to be populated by the pipeline.
 
@@ -266,14 +243,14 @@ Our data analyst, armed with insights, creates a star model in the SQL database 
 7. To grant database permissions to the Azure Data Factory managed identity, copy the code from `./sql/UserManageIdentity.sql` into **New Query**.
 8. Select **Run** again.
 
-### Step 9: Execute the Azure Data Factory Pipeline
+### Step 8: Execute the Azure Data Factory Pipeline
 
 - Go to Azure Data Factory,
 - Launch Azure Data Factory studio
 - Go to Author/Pipeline -> IngestNYBabyNames_PL
 - Add Trigger-> Trigger Now
 
-### Step 10: Monitoring
+### Step 9: Monitoring
 
 You can [natively monitor all of your pipeline runs](https://learn.microsoft.com/azure/data-factory/monitor-visually#monitor-pipeline-runs) in the Azure Data Factory user experience. To access the monitoring feature, select the 'Monitor' tile in the Data Factory Studio, and then 'Pipeline runs'.
 
@@ -285,7 +262,7 @@ Wait for the pipeline success.
 
 The solution uses [Azure Data Lake Storage](https://learn.microsoft.com/azure/storage/blobs/data-lake-storage-introduction). A data lake is a single, centralized repository where you can store all your data, both structured and unstructured. Azure Data Lake Storage is a set of capabilities dedicated to big data analytics, built on Azure Blob Storage. It is possible to check it. Navigate to the resource group, select the Storage Account and see the containers. You will be able to find a 'landing' container where the .csv from api was stored, or bronze, silver and gold containers with the [delta tables](https://learn.microsoft.com/azure/databricks/delta/). All new tables in Databricks are, by default created as Delta tables. A Delta table stores data as a directory of files in cloud object storage and registers that table's metadata to the metastore within a catalog and schema. 
 
-### Step 11: The Quest for Insights
+### Step 10: The Quest for Insights
 
 After the pipeline populates the database, you can execute queries in the SQL Database to uncover the most popular names and trends. To do this, navigate to the resource group and open the SQL Database Query Editor.
 
@@ -309,7 +286,7 @@ GROUP BY y.year
 ORDER BY total_count DESC
 ```
 
-### Step 12: The Journey's End
+### Step 11: The Journey's End
 
 When you're done, delete the resources and the resource group.
 
@@ -317,8 +294,13 @@ When you're done, delete the resources and the resource group.
 >
 > ```sql
 > DROP TABLE IF EXISTS bronze.new_york_baby_names;
+> DROP TABLE IF EXISTS gold.reference_dim_names;
+> DROP TABLE IF EXISTS gold.reference_dim_years;
+> DROP TABLE IF EXISTS gold.reference_dim_locations;
+> DROP TABLE IF EXISTS gold.fact_baby_names;
 > DROP SCHEMA IF EXISTS bronze CASCADE;
 > DROP SCHEMA IF EXISTS silver CASCADE;
+> DROP SCHEMA IF EXISTS gold CASCADE;
 > DROP EXTERNAL LOCATION IF EXISTS landing_ext_loc FORCE;
 > DROP EXTERNAL LOCATION IF EXISTS bronze_ext_loc FORCE;
 > DROP EXTERNAL LOCATION IF EXISTS silver_ext_loc FORCE;
@@ -326,17 +308,12 @@ When you're done, delete the resources and the resource group.
 > DROP STORAGE CREDENTIAL IF EXISTS adls_cred FORCE;
 > ```
 
-After the delete finishes, purge the soft-deleted Key Vaults created by this reference implementation so you can redeploy with the same resource group name:
+After cleaning up Unity Catalog, delete the resource group:
 
 ```bash
 # First Navigate to resource group locks, then delete of all them. Next, execute the script.
 
 az group delete -n $RESOURCEGROUP -y
-
-# Purge only the Key Vaults created by this sample.
-for KV in $(az keyvault list-deleted --query "[?properties.location=='${LOCATION}' && (starts_with(name, 'dbricksKV'))].name" -o tsv); do
-  az keyvault purge --name $KV --location $LOCATION
-done
 ```
 
 ## Contributions

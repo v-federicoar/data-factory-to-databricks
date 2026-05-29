@@ -17,12 +17,6 @@ param userTenantId string
 @description('The username that is deploying, the databricks workpace of the user will have the notebook and The Microsoft Entra ID user to be database admin')
 param username string
 
-@description('Specifies the Azure Active Directory tenant ID that should be used for authenticating requests to the key vault. Get it by using Get-AzSubscription cmdlet.')
-param tenantId string = subscription().tenantId
-
-@description('Secrets expiration date. It is expected in Unix timestamp format.')
-param secretsExpirationDate int
-
 // --- Variables
 var uniqueName = uniqueString(resourceGroup().id)
 @description('Data Factory Name')
@@ -35,10 +29,6 @@ var datalakeStoreName = 'datalake${uniqueName}'
 var serverName = 'sqlserver-${uniqueName}'
 @description('The name of the SQL Database.')
 var sqlDBName = 'SampleDB-${uniqueName}'
-@description('The databricks Key Vault name.')
-var keyVaultName = 'dbricksKV${uniqueName}'
-@description('The adf Key Vault name.')
-var adfKeyVaultName = 'adfkeyVault${uniqueName}'
 @description('Log Analytic Workspace')
 var logAnalyticsWorkspaceName = 'datafactoryworkspace-${uniqueName}'
 @description('The name of the Azure Databricks access connector to create.')
@@ -317,6 +307,7 @@ resource dataFactoryPipeline 'Microsoft.DataFactory/factories/pipelines@2018-06-
             _pipeline_run_id: '@pipeline().RunId'
             _filename: '@concat(\'nybabynames-\',formatDatetime(utcnow(),\'dd-MM-yyyy\'),\'.csv\')'
             _processing_date: '@formatDatetime(utcnow(),\'dd-MM-yyyy HH:mm:ss\')'
+            _account_name: dataLakeStore.name
           }
         }
         linkedServiceName: {
@@ -340,6 +331,7 @@ resource dataFactoryPipeline 'Microsoft.DataFactory/factories/pipelines@2018-06-
           baseParameters: {
             _pipeline_run_id: '@pipeline().RunId'
             _processing_date: '@formatDatetime(utcnow(),\'dd-MM-yyyy\')'
+            _account_name: dataLakeStore.name
           }
         }
         linkedServiceName: {
@@ -363,6 +355,7 @@ resource dataFactoryPipeline 'Microsoft.DataFactory/factories/pipelines@2018-06-
           baseParameters: {
             _pipeline_run_id: '@pipeline().RunId'
             _processing_date: '@formatDatetime(utcnow(),\'dd-MM-yyyy\')'
+            _account_name: dataLakeStore.name
           }
         }
         linkedServiceName: {
@@ -926,79 +919,6 @@ resource goldContainer 'Microsoft.Storage/storageAccounts/blobServices/container
   name: goldContainerName
 }
 
-resource kv 'Microsoft.KeyVault/vaults@2025-05-01' = {
-  name: keyVaultName
-  location: location
-  properties: {
-    enabledForDeployment: false
-    enabledForDiskEncryption: false
-    enabledForTemplateDeployment: false
-    tenantId: tenantId
-    enableSoftDelete: true
-    softDeleteRetentionInDays: 90
-    accessPolicies: []
-    sku: {
-      name: 'standard'
-      family: 'A'
-    }
-    networkAcls: {
-      defaultAction: 'Allow'
-      bypass: 'AzureServices'
-    }
-  }
-}
-
-resource accountNameSecret 'Microsoft.KeyVault/vaults/secrets@2025-05-01' = {
-  parent: kv
-  name: 'accountName'
-  properties: {
-    value: dataLakeStore.name
-    attributes: {
-      exp: secretsExpirationDate
-    }
-  }
-}
-
-resource accountKeySecret 'Microsoft.KeyVault/vaults/secrets@2025-05-01' = {
-  parent: kv
-  name: 'accountKey'
-  properties: {
-    value: dataLakeStore.listKeys().keys[0].value
-    attributes: {
-      exp: secretsExpirationDate
-    }
-  }
-}
-
-resource kvDiag 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
-  name: 'KeyVaultDiagSettings'
-  scope: kv
-  properties: {
-    logs: [
-      {
-        category: 'AuditEvent'
-        enabled: true
-        retentionPolicy: {
-          enabled: false
-          days: 0
-        }
-      }
-    ]
-    metrics: [
-      {
-        category: 'AllMetrics'
-        enabled: true
-        retentionPolicy: {
-          enabled: false
-          days: 0
-        }
-      }
-    ]
-    // Specify the destination for logs and metrics
-    workspaceId: logAnalyticsWorkspace.id // Log Analytics Workspace for storing logs
-  }
-}
-
 resource sqlServer 'Microsoft.Sql/servers@2025-02-01-preview' = {
   name: serverName
   location: location
@@ -1166,10 +1086,6 @@ output location string = location
 output databricksWorkspaceUrl string = 'https://${databricksWorkspace.properties.workspaceUrl}'
 output storageAccountName string = dataLakeStore.name
 output storageAccountResourceId string = dataLakeStore.id
-output databricksKeyVaultName string = keyVaultName
-output databricksKeyVaultUrl string = kv.properties.vaultUri
-output databricksKeyVaultResourceId string = kv.id
-output adfKeyVaultName string = adfKeyVaultName
 output dataFactoryUserManagedIdentityName string = dataFactoryUserIdentity.name
 output dataFactoryUserManagedIdentityResourceId string = dataFactoryUserIdentity.id
 output dataFactoryUserManagedIdentityPrincipalId string = dataFactoryUserIdentity.properties.principalId
