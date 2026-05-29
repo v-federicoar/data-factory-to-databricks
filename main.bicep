@@ -139,7 +139,7 @@ resource databricksLinkedService 'Microsoft.DataFactory/factories/linkedservices
       authentication: 'MSI'
       newClusterNodeType: 'Standard_DS3_v2'
       newClusterNumOfWorker: 1
-      newClusterVersion: '14.3.x-scala2.12'
+      newClusterVersion: '15.4.x-scala2.12'
       newClusterInitScripts: []
     }
   }

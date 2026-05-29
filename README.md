@@ -38,7 +38,7 @@ Like any good adventure, we need to prepare our environment:
 
 ```bash
 export LOCATION=centralus
-export RESOURCEGROUP=rg-medallion-lakehouse-${LOCATION}
+export RESOURCEGROUP=rg-data-factory-to-databricks-${LOCATION}
 export USERNAME=$(az ad signed-in-user show --query mail -o tsv)
 export USER_OBJECTID=$(az ad signed-in-user show --query id -o tsv)
 export USER_TENANTID=$(az account show --query tenantId -o tsv)
@@ -112,10 +112,6 @@ If your workspace uses Unity Catalog and you keep bronze/silver/gold in ADLS pat
 ```bash
 # Current subscription and resource group
 export SUBSCRIPTION_ID=$(az account show --query id -o tsv)
-
-# Avoid interactive prompts when az needs extensions
-az config set extension.use_dynamic_install=yes_without_prompt
-az config set extension.dynamic_install_allow_preview=true
 
 # Values created by main.bicep and exposed as deployment outputs
 export ACCESS_CONNECTOR_NAME=$(az deployment group show -g ${RESOURCEGROUP} -n main --query properties.outputs.databricksAccessConnectorName.value -o tsv)
@@ -203,10 +199,6 @@ GRANT USE CATALOG, CREATE SCHEMA ON CATALOG \`${WORKSPACE_CATALOG}\` TO \`${ADF_
 EOF
 ```
 
-```bash
-cat uc_external_locations_setup.sql
-```
-
 9. In Azure Databricks, execute the generated SQL:
 
   1. In the sidebar, click **Queries**.
@@ -225,8 +217,6 @@ DESCRIBE EXTERNAL LOCATION bronze_ext_loc;
 DESCRIBE EXTERNAL LOCATION silver_ext_loc;
 DESCRIBE EXTERNAL LOCATION gold_ext_loc;
 ```
-
-11. Re-run the notebooks/pipeline.
 
 __NOTE:__  [Notebooks](https://learn.microsoft.com/azure/databricks/notebooks/) are the primary tool for creating data science and machine learning workflows on Azure Databricks. Databricks notebooks provide real-time coauthoring in multiple languages, automatic versioning, and built-in data visualizations for developing code and presenting results. You can see and read the notebooks using Visual Studio Code, the notebooks have comments explaining what they are doing. In this example we are using mainly Python and SQL.  
 
@@ -256,7 +246,7 @@ You can [natively monitor all of your pipeline runs](https://learn.microsoft.com
 
 By default, all data factory runs are displayed in the browser's local time zone. If you change the time zone, all date/time fields adjust to the one you've selected.  
 
-Azure Databricks does not send logs to Azure Monitor by default, but you can enable [diagnostic log delivery](https://learn.microsoft.com/azure/databricks/admin/account-settings/audit-log-delivery) (for example, to Log Analytics). For pipeline-level troubleshooting in this sample, you can still select the notebook execution activity (it may take some time to appear), click on the glasses icon, and follow the [databricks link to check the notebook execution log](https://learn.microsoft.com/en-us/azure/data-factory/transform-data-using-databricks-notebook#monitor-the-pipeline-run).  
+Azure Databricks does not send logs to Azure Monitor by default, but you can enable [diagnostic log delivery](https://learn.microsoft.com/azure/databricks/admin/account-settings/audit-log-delivery) (for example, to Log Analytics). For pipeline-level troubleshooting in this sample, you can still select the notebook execution activity (it may take some time to appear), click on the glasses icon, and follow the [databricks link to check the notebook execution log](https://learn.microsoft.com/azure/data-factory/transform-data-using-databricks-notebook#monitor-the-pipeline-run).  
 
 Wait for the pipeline success.
 
@@ -307,6 +297,13 @@ When you're done, delete the resources and the resource group.
 > DROP EXTERNAL LOCATION IF EXISTS gold_ext_loc FORCE;
 > DROP STORAGE CREDENTIAL IF EXISTS adls_cred FORCE;
 > ```
+>
+> **Remove the service principal from Databricks:**  
+> The ADF managed identity registered as a Databricks service principal also persists at the account level. Remove it to avoid stale entries on redeployment:
+>
+> 1. In Databricks, click your username → **Settings**.
+> 2. Click **Identity and access** → next to **Service principals**, click **Manage**.
+> 3. Find and delete the `dataFactoryUserIdentity` entry.
 
 After cleaning up Unity Catalog, delete the resource group:
 
