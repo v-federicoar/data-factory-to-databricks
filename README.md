@@ -9,6 +9,7 @@ Before we embark on this adventure, ensure you have the following tools ready:
 - **An Azure subscription**  [free account](https://azure.microsoft.com/pricing/purchase-options/azure-account?cid=msft_learn)
 - **Azure CLI**: Version 2.86.0 or higher. Install from [Azure CLI's official page](https://learn.microsoft.com/cli/azure/install-azure-cli).
 - **Bash or WSL**: A Bash-compatible shell environment is crucial. If you're on Windows, check out [Windows Subsystem for Linux (WSL)](https://learn.microsoft.com/windows/wsl/install).
+- **Python 3**: Required for the setup helper command that parses Databricks CLI JSON output.
 - **Databricks CLI**: Optional, but recommended for cluster manipulation. Install instructions are available [here](https://learn.microsoft.com/azure/databricks/dev-tools/cli/tutorial), version 1.1.0 or higher.
 
 ## The Contoso Data Pipeline Adventure
@@ -142,9 +143,9 @@ echo "WORKSPACE_CATALOG=$WORKSPACE_CATALOG"
 
 The Bicep deployment creates the Databricks Access Connector with a system-assigned identity and grants it `Storage Blob Data Contributor` on the sample storage account.
 
-6. In Azure Databricks, create the storage credential in the UI **(or update it if `adls_cred` already exists from a previous deployment)**:
+2. In Azure Databricks, create the storage credential in the UI **(or update it if `adls_cred` already exists from a previous deployment)**:
 
-  > **⚠️ Important:** The Unity Catalog metastore is account-level and survives resource group deletion. If you deleted and recreated the resource group, the old `adls_cred` credential still exists but points to a now-deleted access connector. 
+  > **⚠️ Important:** The Unity Catalog metastore is account-level and survives resource group deletion. If you deleted and recreated the resource group, the old `adls_cred` credential still exists but points to a now-deleted access connector.
 
   To create from scratch:
 
@@ -156,7 +157,7 @@ The Bicep deployment creates the Databricks Access Connector with a system-assig
   6. Leave **Managed Identity ID** empty because this sample uses the access connector system-assigned identity.
   7. Click **Create**.
 
-7. Register the ADF managed identity as a Databricks service principal (required so the GRANT statements in the next step can reference it by client ID):
+3. Register the ADF managed identity as a Databricks service principal (required so the GRANT statements in the next step can reference it by client ID):
 
   1. Click your username in the top-right bar and select **Settings**.
   2. Click the **Identity and access** tab.
@@ -168,7 +169,7 @@ The Bicep deployment creates the Databricks Access Connector with a system-assig
   8. Click **Add**.
 
 
-8. Generate a ready-to-paste SQL script for the external locations and grants (copy and paste this in Bash/WSL):
+4. Generate a ready-to-paste SQL script for the external locations and grants (copy and paste this in Bash/WSL):
 
 ```bash
 cat > uc_external_locations_setup.sql <<EOF
@@ -199,7 +200,7 @@ GRANT USE CATALOG, CREATE SCHEMA ON CATALOG \`${WORKSPACE_CATALOG}\` TO \`${ADF_
 EOF
 ```
 
-9. In Azure Databricks, execute the generated SQL:
+5. In Azure Databricks, execute the generated SQL:
 
   1. In the sidebar, click **Queries**.
   2. Create a new query in the SQL query editor.
@@ -208,7 +209,7 @@ EOF
   5. Select a running SQL warehouse, or start one and wait until it is ready.
 
 
-10. Validate the setup:
+6. Validate the setup:
 
 ```sql
 SHOW EXTERNAL LOCATIONS;
@@ -218,7 +219,7 @@ DESCRIBE EXTERNAL LOCATION silver_ext_loc;
 DESCRIBE EXTERNAL LOCATION gold_ext_loc;
 ```
 
-__NOTE:__  [Notebooks](https://learn.microsoft.com/azure/databricks/notebooks/) are the primary tool for creating data science and machine learning workflows on Azure Databricks. Databricks notebooks provide real-time coauthoring in multiple languages, automatic versioning, and built-in data visualizations for developing code and presenting results. You can see and read the notebooks using Visual Studio Code, the notebooks have comments explaining what they are doing. In this example we are using mainly Python and SQL.  
+__NOTE:__ [Notebooks](https://learn.microsoft.com/azure/databricks/notebooks/) are the primary tool for creating data science and machine learning workflows on Azure Databricks. Databricks notebooks provide real-time coauthoring in multiple languages, automatic versioning, and built-in data visualizations for developing code and presenting results. You can see and read the notebooks using Visual Studio Code, the notebooks have comments explaining what they are doing. In this example we are using mainly Python and SQL.
 
 ### Step 7: The SQL Database Saga
 
@@ -244,13 +245,13 @@ Our data analyst, armed with insights, creates a star model in the SQL database 
 
 You can [natively monitor all of your pipeline runs](https://learn.microsoft.com/azure/data-factory/monitor-visually#monitor-pipeline-runs) in the Azure Data Factory user experience. To access the monitoring feature, select the 'Monitor' tile in the Data Factory Studio, and then 'Pipeline runs'.
 
-By default, all data factory runs are displayed in the browser's local time zone. If you change the time zone, all date/time fields adjust to the one you've selected.  
+By default, all data factory runs are displayed in the browser's local time zone. If you change the time zone, all date/time fields adjust to the one you've selected.
 
-Azure Databricks does not send logs to Azure Monitor by default, but you can enable [diagnostic log delivery](https://learn.microsoft.com/azure/databricks/admin/account-settings/audit-log-delivery) (for example, to Log Analytics). For pipeline-level troubleshooting in this sample, you can still select the notebook execution activity (it may take some time to appear), click on the glasses icon, and follow the [databricks link to check the notebook execution log](https://learn.microsoft.com/azure/data-factory/transform-data-using-databricks-notebook#monitor-the-pipeline-run).  
+Azure Databricks does not send logs to Azure Monitor by default, but you can enable [diagnostic log delivery](https://learn.microsoft.com/azure/databricks/admin/account-settings/audit-log-delivery) (for example, to Log Analytics). For pipeline-level troubleshooting in this sample, you can still select the notebook execution activity (it may take some time to appear), click on the glasses icon, and follow the [databricks link to check the notebook execution log](https://learn.microsoft.com/azure/data-factory/transform-data-using-databricks-notebook#monitor-the-pipeline-run).
 
 Wait for the pipeline success.
 
-The solution uses [Azure Data Lake Storage](https://learn.microsoft.com/azure/storage/blobs/data-lake-storage-introduction). A data lake is a single, centralized repository where you can store all your data, both structured and unstructured. Azure Data Lake Storage is a set of capabilities dedicated to big data analytics, built on Azure Blob Storage. It is possible to check it. Navigate to the resource group, select the Storage Account and see the containers. You will be able to find a 'landing' container where the .csv from api was stored, or bronze, silver and gold containers with the [delta tables](https://learn.microsoft.com/azure/databricks/delta/). All new tables in Databricks are, by default created as Delta tables. A Delta table stores data as a directory of files in cloud object storage and registers that table's metadata to the metastore within a catalog and schema. 
+The solution uses [Azure Data Lake Storage](https://learn.microsoft.com/azure/storage/blobs/data-lake-storage-introduction). A data lake is a single, centralized repository where you can store all your data, both structured and unstructured. Azure Data Lake Storage is a set of capabilities dedicated to big data analytics, built on Azure Blob Storage. It is possible to check it. Navigate to the resource group, select the Storage Account and see the containers. You will be able to find a 'landing' container where the .csv from api was stored, or bronze, silver and gold containers with the [delta tables](https://learn.microsoft.com/azure/databricks/delta/). All new tables in Databricks are, by default created as Delta tables. A Delta table stores data as a directory of files in cloud object storage and registers that table's metadata to the metastore within a catalog and schema.
 
 ### Step 10: The Quest for Insights
 
@@ -298,7 +299,7 @@ When you're done, delete the resources and the resource group.
 > DROP STORAGE CREDENTIAL IF EXISTS adls_cred FORCE;
 > ```
 >
-> **Remove the service principal from Databricks:**  
+> **Remove the service principal from Databricks:**
 > The ADF managed identity registered as a Databricks service principal also persists at the account level. Remove it to avoid stale entries on redeployment:
 >
 > 1. In Databricks, click your username → **Settings**.
