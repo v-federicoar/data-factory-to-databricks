@@ -9,7 +9,6 @@ Before we embark on this adventure, ensure you have the following tools ready:
 - **An Azure subscription**  [free account](https://azure.microsoft.com/pricing/purchase-options/azure-account?cid=msft_learn)
 - **Azure CLI**: Version 2.86.0 or higher. Install from [Azure CLI's official page](https://learn.microsoft.com/cli/azure/install-azure-cli).
 - **Bash or WSL**: A Bash-compatible shell environment is crucial. If you're on Windows, check out [Windows Subsystem for Linux (WSL)](https://learn.microsoft.com/windows/wsl/install).
-- **Python 3**: Required for the setup helper command that parses Databricks CLI JSON output.
 - **Databricks CLI**: Optional, but recommended for cluster manipulation. Install instructions are available [here](https://learn.microsoft.com/azure/databricks/dev-tools/cli/tutorial), version 1.1.0 or higher.
 
 ## The Contoso Data Pipeline Adventure
