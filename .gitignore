@@ -1,3 +1,6 @@
+# Temporary file generated when running the steps in this tutorial
+uc_external_locations_setup.sql
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
